@@ -1,51 +1,32 @@
-import streamlit as st
+import chainlit as cl
 import ollama
+import json
 
-# Set page title
-st.title("Chat with Ollama")
-
-# Initialize chat history in session state if it doesn't exist
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {"role": "system", "content": "You are a helpful assistant."}
-    ]
-
-# Display chat input
-user_input = st.chat_input("Your message:")
-
-# Display chat history and handle new inputs
-for message in st.session_state.messages:
-    if message["role"] != "system":
-        with st.chat_message(message["role"]):
-            st.write(message["content"])
-
-if user_input:
-    # Display user message
-    with st.chat_message("user"):
-        st.write(user_input)
+@cl.on_message
+async def main(message: cl.Message):
+    # Create a message dictionary instead of using Message objects directly
+    messages = [{'role': 'user', 'content': str(message.content)}]
     
-    # Add user message to history
-    st.session_state.messages.append({"role": "user", "content": user_input})
+    # Create a message first
+    msg = cl.Message(content="")
+    await msg.send()
+
+    # Create a stream with ollama
+    stream = ollama.chat(
+        model='deepseek-r1:latest',  # Use a model you have installed
+        messages=messages,
+        stream=True,
+    )
+
+    # Stream the response token by token
+    chunks = list(stream)
+    for chunk in chunks:
+        if token := chunk['message']['content']:
+            await msg.stream_token(token)
     
-    # Get streaming response
-    with st.chat_message("assistant"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        completion = ollama.chat(
-            model="deepseek-r1:latest",
-            messages=st.session_state.messages,
-            stream=True
-        )
-        
-        # Process the streaming response
-        for chunk in completion:
-            if 'message' in chunk and 'content' in chunk['message']:
-                content = chunk['message']['content']
-                full_response += content
-                message_placeholder.write(full_response + "▌")
-        
-        message_placeholder.write(full_response)
-    
-    # Add assistant response to history
-    st.session_state.messages.append({"role": "assistant", "content": full_response})
+    # Update the message one final time
+    await msg.update()
+
+@cl.on_chat_start
+async def start():
+    await cl.Message(content="Hello! How can I help you today?").send()
