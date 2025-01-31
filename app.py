@@ -1,58 +1,51 @@
+import streamlit as st
 import ollama
-import gradio as gr
 
-def chat_with_ollama(message, history):
-    # Initialize empty string for streaming response
-    response = ""
-    
-    # Convert history to messages format
-    messages = [
+# Set page title
+st.title("Chat with Ollama")
+
+# Initialize chat history in session state if it doesn't exist
+if "messages" not in st.session_state:
+    st.session_state.messages = [
         {"role": "system", "content": "You are a helpful assistant."}
     ]
+
+# Display chat input
+user_input = st.chat_input("Your message:")
+
+# Display chat history and handle new inputs
+for message in st.session_state.messages:
+    if message["role"] != "system":
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+
+if user_input:
+    # Display user message
+    with st.chat_message("user"):
+        st.write(user_input)
     
-    # Add history messages
-    for h in history:
-        messages.append({"role": "user", "content": h[0]})
-        if h[1]:  # Only add assistant message if it exists
-            messages.append({"role": "assistant", "content": h[1]})
+    # Add user message to history
+    st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Add current message
-    messages.append({"role": "user", "content": message})
+    # Get streaming response
+    with st.chat_message("assistant"):
+        message_placeholder = st.empty()
+        full_response = ""
+        
+        completion = ollama.chat(
+            model="deepseek-r1:latest",
+            messages=st.session_state.messages,
+            stream=True
+        )
+        
+        # Process the streaming response
+        for chunk in completion:
+            if 'message' in chunk and 'content' in chunk['message']:
+                content = chunk['message']['content']
+                full_response += content
+                message_placeholder.write(full_response + "▌")
+        
+        message_placeholder.write(full_response)
     
-    completion = ollama.chat(
-        model="deepseek-r1:latest",
-        messages=messages,
-        stream=True  # Enable streaming
-    )
-    
-    # Stream the response
-    for chunk in completion:
-        if 'message' in chunk and 'content' in chunk['message']:
-            content = chunk['message']['content']
-            # Handle <think> and </think> tags
-            content = content.replace("<think>", "Thinking...").replace("</think>", "\n\n Answer:")
-            response += content
-            yield response
-
-# Create Gradio interface with Chatbot
-with gr.Blocks() as demo:
-    chatbot = gr.Chatbot()
-    msg = gr.Textbox(placeholder="Enter your message here...")
-    clear = gr.Button("Clear")
-
-    def user(user_message, history):
-        return "", history + [[user_message, None]]
-
-    def bot(history):
-        history[-1][1] = ""
-        for chunk in chat_with_ollama(history[-1][0], history[:-1]):
-            history[-1][1] = chunk
-            yield history
-
-    msg.submit(user, [msg, chatbot], [msg, chatbot], queue=False).then(
-        bot, chatbot, chatbot
-    )
-    clear.click(lambda: None, None, chatbot, queue=False)
-
-if __name__ == "__main__":
-    demo.launch()
+    # Add assistant response to history
+    st.session_state.messages.append({"role": "assistant", "content": full_response})
